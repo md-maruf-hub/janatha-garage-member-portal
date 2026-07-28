@@ -1,0 +1,6 @@
+{
+  "name": "Janatha Garage Member Management",
+  "description": "Production-ready Member Management Web Application for Janatha Garage with registration, admin approval, PVC ID card generation, QR verification, and Google Apps Script integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
