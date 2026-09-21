@@ -31,7 +31,7 @@ export const MemberCardModal: React.FC<MemberCardModalProps> = ({
               <FileText className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="font-bold text-xl text-white">Member Application Details</h3>
+              <h3 className="font-bold text-xl text-white">Member Profile Details</h3>
               <p className="text-xs text-slate-400">Janatha Garage Membership Portal</p>
             </div>
           </div>
@@ -56,13 +56,9 @@ export const MemberCardModal: React.FC<MemberCardModalProps> = ({
             <div className="space-y-2 text-center sm:text-left flex-1">
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
                 <h2 className="text-2xl font-black text-slate-900">{member.fullName}</h2>
-                {member.status === 'Approved' ? (
+                {(member.status === 'Approved' || member.registrationNumber || member.approvalDate) && (
                   <span className="px-3 py-1 bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs rounded-full flex items-center gap-1">
                     <ShieldCheck className="w-3.5 h-3.5" /> Approved Member
-                  </span>
-                ) : (
-                  <span className="px-3 py-1 bg-amber-100 text-amber-800 border border-amber-300 font-bold text-xs rounded-full flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" /> Pending Approval
                   </span>
                 )}
               </div>

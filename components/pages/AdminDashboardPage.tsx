@@ -58,6 +58,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   // Settings State
   const [gasUrlInput, setGasUrlInput] = useState(settings.gasWebAppUrl);
   const [useLiveGasInput, setUseLiveGasInput] = useState(settings.useLiveGas);
+  const [authoritySignatureInput, setAuthoritySignatureInput] = useState<string>(settings.authoritySignatureUrl || '');
+  const [authorityTitleInput, setAuthorityTitleInput] = useState<string>(settings.authorityTitle || 'Authorized Signature');
+  const [signatureSaveSuccess, setSignatureSaveSuccess] = useState<boolean>(false);
 
   // Sync tab with URL search parameter reactively
   const searchParams = useSearchParams();
@@ -127,6 +130,36 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       useLiveGas: useLiveGasInput
     });
     alert('Settings updated successfully!');
+  };
+
+  const handleSignatureFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Signature image file size must be less than 2MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const b64 = reader.result as string;
+      setAuthoritySignatureInput(b64);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveSignature = () => {
+    setAuthoritySignatureInput('');
+  };
+
+  const handleSaveAuthoritySettings = () => {
+    const updated: AppSettings = {
+      ...settings,
+      authoritySignatureUrl: authoritySignatureInput,
+      authorityTitle: authorityTitleInput.trim() || 'Authorized Signature'
+    };
+    onUpdateSettings(updated);
+    setSignatureSaveSuccess(true);
+    setTimeout(() => setSignatureSaveSuccess(false), 3000);
   };
 
   const handleAddMemberType = () => {
@@ -691,7 +724,7 @@ function adminLogin(payload) {
           }`}
         >
           <Settings className="w-4 h-4 text-blue-600" />
-          GAS & Member Types Settings
+          Settings &amp; Signature
         </button>
       </div>
 
@@ -916,6 +949,104 @@ function adminLogin(payload) {
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Authority Signature & ID Card Settings */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-indigo-600" /> Authorized Signature for ID Cards
+              </h3>
+              {signatureSaveSuccess && (
+                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg flex items-center gap-1">
+                  <Check className="w-3.5 h-3.5" /> Signature Saved!
+                </span>
+              )}
+            </div>
+
+            <p className="text-xs text-slate-600">
+              Upload the official authority signature (PNG or JPG) and configure the title. This signature will be automatically printed on all member ID cards.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+              {/* Signature Upload & Preview */}
+              <div className="space-y-3">
+                <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider">
+                  Signature Image
+                </label>
+
+                {authoritySignatureInput ? (
+                  <div className="flex flex-col items-center p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl space-y-3">
+                    <div className="h-24 w-full max-w-[260px] bg-white border border-slate-200 rounded-xl p-2 flex items-center justify-center shadow-inner">
+                      <img
+                        src={authoritySignatureInput}
+                        alt="Authorized Signature Preview"
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl cursor-pointer transition-colors">
+                        Change Image
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleSignatureFileChange}
+                          className="hidden"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleRemoveSignature}
+                        className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-2xl bg-slate-50/60 hover:bg-indigo-50/30 cursor-pointer transition-all">
+                    <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center mb-2">
+                      <Plus className="w-6 h-6" />
+                    </div>
+                    <span className="text-sm font-bold text-slate-800">Upload Signature Image</span>
+                    <span className="text-xs text-slate-500 mt-0.5">PNG or JPG (transparent PNG recommended)</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleSignatureFileChange}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
+
+              {/* Title Input & Save */}
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider">
+                    Signatory Title / Designation
+                  </label>
+                  <input
+                    type="text"
+                    value={authorityTitleInput}
+                    onChange={(e) => setAuthorityTitleInput(e.target.value)}
+                    placeholder="e.g. Authorized Signature, President, Secretary"
+                    className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:bg-white transition-colors"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    This text is displayed right underneath the signature line on the ID card.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSaveAuthoritySettings}
+                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl shadow-md transition-all flex items-center gap-2 active:scale-95 cursor-pointer"
+                >
+                  <Check className="w-4 h-4" /> Save Authority Signature
+                </button>
+              </div>
             </div>
           </div>
 

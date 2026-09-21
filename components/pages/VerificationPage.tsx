@@ -106,7 +106,7 @@ export const VerificationPage: React.FC<VerificationPageProps> = ({
               type="text"
               value={searchRegNo}
               onChange={(e) => setSearchRegNo(e.target.value)}
-              placeholder="Enter Registration Number (e.g. JG260001)..."
+              placeholder="Enter Registration Number (e.g. JG-2025-001)..."
               className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 font-extrabold focus:bg-white focus:ring-2 focus:ring-emerald-500 transition-all text-sm"
             />
           </div>
@@ -237,33 +237,9 @@ export const VerificationPage: React.FC<VerificationPageProps> = ({
           <div className="space-y-1">
             <h3 className="text-xl font-extrabold text-slate-800">Verify Official Membership</h3>
             <p className="text-sm font-medium text-slate-500 max-w-md mx-auto">
-              Scan a QR code or enter a Registration Number (e.g. JG260001) or Phone Number to verify membership status.
+              Scan a QR code or enter a Registration Number (e.g. JG-2025-001) or Phone Number to verify membership status.
             </p>
           </div>
-
-          {approvedMembers.length > 0 && (
-            <div className="pt-4 border-t border-slate-100 max-w-2xl mx-auto">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-                Quick Verify Approved Member ({approvedMembers.length})
-              </p>
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                {approvedMembers.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => {
-                      setSearchRegNo(m.registrationNumber || m.id);
-                      handleVerify(m.registrationNumber || m.id);
-                    }}
-                    className="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-all cursor-pointer flex items-center gap-1.5"
-                  >
-                    <span className="font-mono text-emerald-600">{m.registrationNumber}</span>
-                    <span>{m.fullName}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>

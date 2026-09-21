@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
           <p style="color: #64748b; font-size: 13px; margin-bottom: 0; line-height: 1.5;">
             Warm regards,<br />
             <strong>Janatha Garage Executive Administration Team</strong><br />
-            <span style="font-size: 11px; color: #94a3b8;">Plot #14, Road #05, Dhanmondi, Dhaka-1205</span>
+            <span style="font-size: 11px; color: #94a3b8;">Jamuna Para Jame Masjid, Paterbhita, Chandanbaisha, Shariakandi, Bogura, Bangladesh</span>
           </p>
         </div>
       </div>

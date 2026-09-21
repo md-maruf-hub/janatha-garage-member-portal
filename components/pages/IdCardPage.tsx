@@ -39,7 +39,7 @@ export const IdCardPage: React.FC<IdCardPageProps> = ({
 
     const rawInput = searchRegNo.trim();
     if (!rawInput) {
-      setNotFoundError('Please enter a Registration Number (e.g. JG260001) or Phone Number.');
+      setNotFoundError('Please enter a Registration Number (e.g. JG-2025-001) or Phone Number.');
       setSelectedMember(null);
       return;
     }
@@ -73,8 +73,19 @@ export const IdCardPage: React.FC<IdCardPageProps> = ({
           matchesPhoneNumber(m.phone, initialRegNo)
       );
       if (match) setSelectedMember(match);
+    } else if (approvedMembers.length > 0) {
+      if (!selectedMember || !approvedMembers.some((m) => m.id === selectedMember.id)) {
+        const nirobFromSheet = approvedMembers.find((m) =>
+          (m.fullName || '').toLowerCase().includes('nirob')
+        );
+        const target = nirobFromSheet || approvedMembers[0];
+        setSelectedMember(target);
+        if (target?.registrationNumber) {
+          setSearchRegNo(target.registrationNumber);
+        }
+      }
     }
-  }, [initialRegNo, approvedMembers]);
+  }, [initialRegNo, approvedMembers, selectedMember]);
 
   return (
     <div className="space-y-8 pb-12">
@@ -82,7 +93,7 @@ export const IdCardPage: React.FC<IdCardPageProps> = ({
       <div className="bg-slate-900 text-white rounded-3xl p-8 shadow-xl border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="space-y-2 text-center md:text-left">
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl text-xs font-bold">
-            <CreditCard className="w-4 h-4" /> PVC CR80 Membership Card
+            <CreditCard className="w-4 h-4" /> PVC Membership Card (45mm × 72mm)
           </div>
           <h1 className="text-3xl font-black tracking-tight">Digital Membership ID Card Generator</h1>
           <p className="text-slate-300 text-sm font-medium">
@@ -101,7 +112,7 @@ export const IdCardPage: React.FC<IdCardPageProps> = ({
               type="text"
               value={searchRegNo}
               onChange={(e) => setSearchRegNo(e.target.value)}
-              placeholder="Enter Registration Number (e.g. JG260001) or Phone Number..."
+              placeholder="Enter Registration Number (e.g. JG-2025-001) or Phone Number..."
               className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 transition-all text-sm"
             />
           </div>
@@ -144,7 +155,7 @@ export const IdCardPage: React.FC<IdCardPageProps> = ({
           <div className="space-y-1">
             <h3 className="text-xl font-extrabold text-slate-800">Search for an Approved Member</h3>
             <p className="text-sm font-medium text-slate-500 max-w-md mx-auto">
-              Please enter a valid Registration Number (e.g. JG260001) or Phone Number in the search box above.
+              Please enter a valid Registration Number (e.g. JG-2025-001) or Phone Number in the search box above.
             </p>
           </div>
 

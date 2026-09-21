@@ -20,6 +20,31 @@ export const DEFAULT_MEMBER_TYPES: MemberType[] = [
   'Member'
 ];
 
+export const PERMANENT_ORG_ADDRESS = 'Jamuna Para Jame Masjid, Paterbhita, Chandanbaisha, Shariakandi, Bogura, Bangladesh';
+
+export const DEFAULT_APPROVED_MEMBER: MemberRecord = {
+  id: 'M_JG-2025-001',
+  registrationNumber: 'JG-2025-001',
+  memberType: 'Member',
+  fullName: 'NIROB KAZI',
+  fatherName: 'Kazi Ruhul Amin',
+  motherName: 'Nurun Nahar',
+  gender: 'Male',
+  dob: '2000-01-01',
+  bloodGroup: 'A+',
+  phone: '01712345678',
+  email: 'nirobkazi@gmail.com',
+  presentAddress: PERMANENT_ORG_ADDRESS,
+  permanentAddressSame: true,
+  permanentAddress: PERMANENT_ORG_ADDRESS,
+  occupation: 'Business',
+  companyName: 'Janatha Garage',
+  photoUrl: '/nirob-kazi.jpg',
+  status: 'Approved',
+  submissionDate: '2025-01-01T00:00:00.000Z',
+  approvalDate: '2025-01-15T10:00:00.000Z'
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   gasWebAppUrl: typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL) ? (process.env.NEXT_PUBLIC_GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL)! : 'https://script.google.com/macros/s/AKfycbzoJKOiVcrBLJHvxfN8KFdNJDRWkShYBzDvo5CQFuk_9JPckOYWmRBRZ_yC61r-ExxS2g/exec',
   spreadsheetId: '',
@@ -27,17 +52,31 @@ export const DEFAULT_SETTINGS: AppSettings = {
   useLiveGas: true,
   memberTypes: DEFAULT_MEMBER_TYPES,
   orgName: 'Janatha Garage',
-  orgAddress: 'Plot #14, Road #05, Dhanmondi, Dhaka-1205, Bangladesh',
+  orgAddress: PERMANENT_ORG_ADDRESS,
   orgPhone: '+8801700000000',
-  orgEmail: 'info@janathagarage.org'
+  orgEmail: 'info@janathagarage.org',
+  authoritySignatureUrl: '',
+  authorityTitle: 'Authorized Signature'
 };
 
 function purgeLegacyStaticData() {
   if (typeof window === 'undefined') return;
   try {
     const rawApproved = localStorage.getItem(STORAGE_KEYS.APPROVED);
-    if (rawApproved && rawApproved.includes('M_JG260001')) {
-      localStorage.removeItem(STORAGE_KEYS.APPROVED);
+    if (rawApproved && (rawApproved.includes('M_JG260001') || rawApproved.includes('M_JG-2025-001'))) {
+      const parsed = JSON.parse(rawApproved);
+      if (Array.isArray(parsed)) {
+        const withoutFakeDemo = parsed.filter(
+          (m: any) => m.id !== 'M_JG-2025-001' && m.registrationNumber !== 'JG-2025-001'
+        );
+        if (withoutFakeDemo.length > 0) {
+          localStorage.setItem(STORAGE_KEYS.APPROVED, JSON.stringify(withoutFakeDemo));
+        } else {
+          localStorage.removeItem(STORAGE_KEYS.APPROVED);
+        }
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.APPROVED);
+      }
     }
     const rawPending = localStorage.getItem(STORAGE_KEYS.PENDING);
     if (rawPending && rawPending.includes('PEND_1001')) {
@@ -56,7 +95,15 @@ export function getStoredSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (raw) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw);
+      if (!parsed.gasWebAppUrl || parsed.gasWebAppUrl.includes('YOUR_DEPLOYMENT_ID')) {
+        parsed.gasWebAppUrl = DEFAULT_SETTINGS.gasWebAppUrl;
+      }
+      if (!parsed.orgAddress || parsed.orgAddress.includes('Dhanmondi')) {
+        parsed.orgAddress = PERMANENT_ORG_ADDRESS;
+      }
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(parsed));
+      return { ...DEFAULT_SETTINGS, ...parsed };
     }
   } catch (e) {
     // Ignore error
@@ -75,10 +122,14 @@ export function getApprovedMembers(): MemberRecord[] {
     const raw = localStorage.getItem(STORAGE_KEYS.APPROVED);
     if (raw) {
       const parsed: MemberRecord[] = JSON.parse(raw);
-      return parsed.map((m) => ({
-        ...m,
-        phone: formatPhoneNumber(m.phone)
-      }));
+      const list = parsed
+        .filter((m) => m.id !== 'M_JG-2025-001' && m.registrationNumber !== 'JG-2025-001')
+        .map((m) => ({
+          ...m,
+          status: 'Approved' as const,
+          phone: formatPhoneNumber(m.phone)
+        }));
+      return list;
     }
     return [];
   } catch (e) {
@@ -247,22 +298,24 @@ export function approvePendingMember(pendingId: string, memberType: MemberType):
 
   const pendingRecord = pending[pendingIndex];
 
-  const currentYear = new Date().getFullYear().toString().slice(-2);
-  const prefix = `JG${currentYear}`;
+  const currentYear = new Date().getFullYear().toString();
+  const prefix = `JG-${currentYear}-`;
 
   let maxSeq = 0;
   approved.forEach((m) => {
-    if (m.registrationNumber && m.registrationNumber.startsWith(prefix)) {
-      const seqStr = m.registrationNumber.replace(prefix, '');
-      const seq = parseInt(seqStr, 10);
-      if (!isNaN(seq) && seq > maxSeq) {
-        maxSeq = seq;
+    if (m.registrationNumber) {
+      const match = m.registrationNumber.match(/JG[-]?\d{2,4}[-]0*(\d+)/i) || m.registrationNumber.match(/JG\d{2}0*(\d+)/i);
+      if (match && match[1]) {
+        const seq = parseInt(match[1], 10);
+        if (!isNaN(seq) && seq > maxSeq) {
+          maxSeq = seq;
+        }
       }
     }
   });
 
-  const nextSeq = (maxSeq + 1).toString().padStart(4, '0');
-  const regNo = `${prefix}${nextSeq}`;
+  const nextSeq = (maxSeq + 1).toString().padStart(3, '0');
+  const regNo = `JG-${currentYear}-${nextSeq}`;
 
   const approvedRecord: MemberRecord = {
     ...pendingRecord,

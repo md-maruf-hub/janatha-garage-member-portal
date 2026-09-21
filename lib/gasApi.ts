@@ -26,6 +26,7 @@ export async function fetchApprovedMembersFromGAS(gasUrl: string): Promise<Membe
   if (res && res.success && Array.isArray(res.data)) {
     return res.data.map((m: MemberRecord) => ({
       ...m,
+      status: 'Approved' as const,
       phone: formatPhoneNumber(m.phone)
     }));
   }

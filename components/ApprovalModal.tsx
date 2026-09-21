@@ -112,7 +112,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               <CheckCircle className="w-4 h-4 text-emerald-600" /> Auto-Generated Actions on Approval:
             </p>
             <ul className="list-disc list-inside space-y-0.5 pl-1 opacity-90">
-              <li>Sequential Registration Number (e.g. JG260001) generated</li>
+              <li>Sequential Registration Number (e.g. JG-2025-001) generated</li>
               <li>Record transferred from Pending to Approved Sheet</li>
               <li>Verification QR Code created</li>
               <li>Approval email notice dispatched to {member.email}</li>

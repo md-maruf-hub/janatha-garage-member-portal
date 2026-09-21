@@ -33,7 +33,7 @@ export interface RegistrationFormData {
 
 export interface MemberRecord extends RegistrationFormData {
   id: string;
-  registrationNumber?: string; // e.g. JG260001
+  registrationNumber?: string; // e.g. JG-2025-001
   memberType?: MemberType;
   status: ApplicationStatus;
   submissionDate: string;
@@ -61,6 +61,8 @@ export interface AppSettings {
   orgAddress: string;
   orgPhone: string;
   orgEmail: string;
+  authoritySignatureUrl?: string;
+  authorityTitle?: string;
 }
 
 export interface NotificationState {

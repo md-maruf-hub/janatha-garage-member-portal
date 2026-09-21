@@ -89,14 +89,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setApprovedMembers(localApproved);
     setPendingMembers(localPending);
 
-    if (curSettings.gasWebAppUrl) {
+    const gasUrl = curSettings.gasWebAppUrl || DEFAULT_SETTINGS.gasWebAppUrl;
+    if (gasUrl) {
       try {
         const [gasApproved, gasPending] = await Promise.all([
-          fetchApprovedMembersFromGAS(curSettings.gasWebAppUrl),
-          fetchPendingMembersFromGAS(curSettings.gasWebAppUrl)
+          fetchApprovedMembersFromGAS(gasUrl),
+          fetchPendingMembersFromGAS(gasUrl)
         ]);
 
-        if (Array.isArray(gasApproved)) {
+        if (Array.isArray(gasApproved) && gasApproved.length > 0) {
           setApprovedMembers(gasApproved);
           saveApprovedMembers(gasApproved);
         }

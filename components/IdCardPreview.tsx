@@ -4,39 +4,41 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import {
   Download,
-  Phone,
-  Mail,
-  MapPin,
   Loader2,
-  Globe,
-  UserCheck,
-  Droplet,
-  Briefcase,
-  Calendar,
   CreditCard
 } from 'lucide-react';
 import { MemberRecord, AppSettings } from '@/types';
-import { formatPhoneNumber, DEFAULT_AVATAR } from '@/lib/storage';
+import { formatPhoneNumber, DEFAULT_AVATAR, PERMANENT_ORG_ADDRESS } from '@/lib/storage';
 
 interface IdCardPreviewProps {
   member: MemberRecord;
   settings: AppSettings;
 }
 
-const CARD_WIDTH = 638;
-const CARD_HEIGHT = 1010;
-const PREVIEW_SCALE = 0.50;
+const CARD_WIDTH = 640;
+const CARD_HEIGHT = 1024;
+const PREVIEW_SCALE = 0.58;
 const PREVIEW_WIDTH = Math.round(CARD_WIDTH * PREVIEW_SCALE);
 const PREVIEW_HEIGHT = Math.round(CARD_HEIGHT * PREVIEW_SCALE);
-
-const DEFAULT_AVATAR_BASE64 = DEFAULT_AVATAR;
 
 async function urlToBase64(url: string): Promise<string> {
   if (!url) return '';
   if (url.startsWith('data:')) return url;
   try {
+    // Try image proxy to convert cross-origin / Google Drive photos to base64
+    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(url)}&format=base64`;
+    const res = await fetch(proxyUrl);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.base64) return data.base64;
+    }
+  } catch (err) {
+    console.warn('Proxy fetch failed, trying direct:', err);
+  }
+
+  try {
     const response = await fetch(url, { mode: 'cors' });
-    if (!response.ok) throw new Error('Network error');
+    if (!response.ok) throw new Error('Direct fetch failed');
     const blob = await response.blob();
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -66,9 +68,10 @@ async function waitForAssets(element: HTMLElement) {
   });
 
   await Promise.all(promises);
-  await new Promise((r) => setTimeout(r, 150));
+  await new Promise((r) => setTimeout(r, 200));
 }
 
+// Color convertors to make html2canvas compatible with Tailwind v4 oklch
 const oklabToRgb = (l: number, a: number, b: number, alpha: number = 1): string => {
   const l_ = l + 0.3963377774 * a + 0.2158037573 * b;
   const m_ = l - 0.1055613458 * a - 0.0638541728 * b;
@@ -140,13 +143,11 @@ const parseAndReplaceModernColors = (cssText: string): string => {
     }
   );
 
-  // Replace lab() — legacy CIE Lab color function unsupported by html2canvas
+  // Replace lab()
   result = result.replace(
     /\blab\(\s*([\d.%]+)\s+([-\d.]+)\s+([-\d.]+)(?:\s*\/\s*([\d.%]+))?\)/gi,
     (_match, rawL, rawA, rawB, rawAlpha) => {
-      // Rough CIE Lab -> sRGB approximation via XYZ
       let Lval = parseFloat(rawL);
-      if (rawL.includes('%')) Lval = Lval;
       const aVal = parseFloat(rawA);
       const bVal = parseFloat(rawB);
       let alpha = 1;
@@ -154,18 +155,18 @@ const parseAndReplaceModernColors = (cssText: string): string => {
         alpha = parseFloat(rawAlpha);
         if (rawAlpha.includes('%')) alpha = alpha / 100;
       }
-      // Lab -> XYZ (D50)
       const fy = (Lval + 16) / 116;
       const fx = aVal / 500 + fy;
       const fz = fy - bVal / 200;
-      const xn = 0.96422, yn = 1.0, zn = 0.82521;
-      const f3 = (t: number) => t * t * t > 0.008856 ? t * t * t : (t - 16 / 116) / 7.787;
+      const xn = 0.96422,
+        yn = 1.0,
+        zn = 0.82521;
+      const f3 = (t: number) => (t * t * t > 0.008856 ? t * t * t : (t - 16 / 116) / 7.787);
       const X = xn * f3(fx);
       const Y = yn * f3(fy);
       const Z = zn * f3(fz);
-      // XYZ (D50) -> linear sRGB (D65 adapted)
       const rLin = X * 3.1338561 - Y * 1.6168667 - Z * 0.4906146;
-      const gLin = -X * 0.9787684 + Y * 1.9161415 + Z * 0.0334540;
+      const gLin = -X * 0.9787684 + Y * 1.9161415 + Z * 0.033454;
       const bLin = X * 0.0719453 - Y * 0.2289914 + Z * 1.4052427;
       const gamma = (c: number) =>
         c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
@@ -177,7 +178,7 @@ const parseAndReplaceModernColors = (cssText: string): string => {
     }
   );
 
-  // Replace color-mix() — replace with the first color argument as a fallback
+  // Replace color-mix()
   result = result.replace(
     /color-mix\([^)]+,\s*(#[0-9a-fA-F]{3,8}|rgb[a]?\([^)]+\)|[a-z]+)[^)]*\)/gi,
     (_match, firstColor) => firstColor
@@ -189,7 +190,6 @@ const parseAndReplaceModernColors = (cssText: string): string => {
 const MODERN_COLOR_REGEX = /(oklch|oklab|\blab\(|color-mix)/i;
 
 const sanitizeDocumentForHtml2Canvas = (clonedDoc: Document) => {
-  // Sanitize <style> tags
   const styleEls = clonedDoc.querySelectorAll('style');
   styleEls.forEach((styleEl) => {
     if (styleEl.textContent && MODERN_COLOR_REGEX.test(styleEl.textContent)) {
@@ -197,7 +197,6 @@ const sanitizeDocumentForHtml2Canvas = (clonedDoc: Document) => {
     }
   });
 
-  // Sanitize linked/external stylesheets
   try {
     Array.from(clonedDoc.styleSheets).forEach((sheet) => {
       try {
@@ -223,14 +222,13 @@ const sanitizeDocumentForHtml2Canvas = (clonedDoc: Document) => {
           }
         }
       } catch (e) {
-        // cross-origin sheets throw — ignore
+        // cross-origin sheets ignore
       }
     });
   } catch (e) {
     // ignore
   }
 
-  // Sanitize inline styles
   const elementsWithStyle = clonedDoc.querySelectorAll('[style]');
   elementsWithStyle.forEach((el) => {
     const inlineStyle = el.getAttribute('style');
@@ -240,122 +238,106 @@ const sanitizeDocumentForHtml2Canvas = (clonedDoc: Document) => {
   });
 };
 
-const OrgHeaderLogo: React.FC<{ orgName?: string }> = ({ orgName }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-    <div style={{ position: 'relative', width: '58px', height: '58px', flexShrink: 0 }}>
-      <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', display: 'block' }}>
-        <circle cx="30" cy="30" r="14" fill="#059669" />
-        <circle cx="70" cy="30" r="14" fill="#f59e0b" />
-        <circle cx="70" cy="70" r="14" fill="#ea580c" />
-        <circle cx="30" cy="70" r="14" fill="#0284c7" />
-        <circle cx="50" cy="50" r="28" fill="#0f172a" stroke="#ffffff" strokeWidth="3.5" />
+// Logo Component
+const JanathaHeaderLogo: React.FC = () => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+    <div style={{ position: 'relative', width: '110px', height: '110px', flexShrink: 0 }}>
+      <svg viewBox="0 0 500 500" style={{ width: '100%', height: '100%', display: 'block' }}>
+        <circle cx="170" cy="110" r="30" fill="#22c55e" />
+        <path d="M 130 185 C 130 145, 170 145, 205 145 C 205 175, 180 185, 145 185 Z" fill="#22c55e" />
+        <path d="M 115 165 C 115 140, 150 135, 175 140 C 160 180, 130 195, 115 165 Z" fill="#22c55e" />
+
+        <circle cx="330" cy="110" r="30" fill="#f59e0b" />
+        <path d="M 370 185 C 370 145, 330 145, 295 145 C 295 175, 320 185, 355 185 Z" fill="#f59e0b" />
+        <path d="M 385 165 C 385 140, 350 135, 325 140 C 340 180, 370 195, 385 165 Z" fill="#f59e0b" />
+
+        <circle cx="330" cy="290" r="30" fill="#ef4444" />
+        <path d="M 370 215 C 370 255, 330 255, 295 255 C 295 225, 320 215, 355 215 Z" fill="#ef4444" />
+        <path d="M 385 235 C 385 260, 350 265, 325 260 C 340 220, 370 205, 385 235 Z" fill="#ef4444" />
+
+        <circle cx="170" cy="290" r="30" fill="#0284c7" />
+        <path d="M 130 215 C 130 255, 170 255, 205 255 C 205 225, 180 215, 145 215 Z" fill="#0284c7" />
+        <path d="M 115 235 C 115 260, 150 265, 175 260 C 160 220, 130 205, 115 235 Z" fill="#0284c7" />
+
+        <rect x="175" y="135" width="150" height="130" rx="38" fill="#0b1e36" />
         <text
-          x="50"
-          y="58"
-          fill="#ffffff"
-          fontSize="24"
+          x="250"
+          y="222"
+          fontFamily="system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
           fontWeight="900"
-          fontFamily="system-ui, -apple-system, sans-serif"
+          fontSize="72"
+          fill="#FFFFFF"
           textAnchor="middle"
+          letterSpacing="1"
         >
           JG
         </text>
       </svg>
     </div>
 
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
       <span
         style={{
-          fontSize: '22px',
+          fontSize: '48px',
           fontWeight: 900,
-          color: '#0f223d',
-          lineHeight: 1.15,
-          letterSpacing: '-0.3px',
-          textTransform: 'uppercase'
+          color: '#0b1e36',
+          letterSpacing: '-0.5px'
         }}
       >
-        {orgName || 'JANATHA GARAGE'}
+        Janatha
       </span>
       <span
         style={{
-          fontSize: '13px',
-          fontWeight: 800,
-          color: '#059669',
-          letterSpacing: '1px',
-          marginTop: '2px',
+          fontSize: '48px',
+          fontWeight: 900,
+          color: '#0b1e36',
+          letterSpacing: '-0.5px',
+          marginTop: '3px'
+        }}
+      >
+        Garage
+      </span>
+      <span
+        style={{
+          fontSize: '15px',
+          fontWeight: 900,
+          color: '#1e293b',
+          letterSpacing: '3.5px',
+          marginTop: '16px',
           textTransform: 'uppercase'
         }}
       >
-        OFFICIAL MEMBER
+        TOGETHER WE CAN
       </span>
     </div>
   </div>
 );
 
-const BarcodeGraphic: React.FC<{ value: string }> = ({ value }) => {
-  const code = value || 'JG260001';
-  const pattern = [2, 1, 3, 1, 1, 2, 3, 1, 2, 1, 1, 3, 2, 2, 1, 1, 3, 1, 2, 1, 3, 2, 1, 1, 2, 3, 1, 1, 2, 1, 3, 1, 2, 1, 1, 3, 2, 1];
-  const bars: React.ReactNode[] = [];
-  let currentX = 0;
-
-  for (let i = 0; i < 48; i++) {
-    const width = (pattern[i % pattern.length] || 1) * 2.6;
-    const isBar = i % 2 === 0;
-    if (isBar) {
-      bars.push(
-        <rect key={i} x={currentX} y={0} width={width} height={52} fill="#0f172a" />
-      );
-    }
-    currentX += width + (isBar ? 1.5 : 2.5);
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <svg viewBox={`0 0 ${currentX} 52`} style={{ width: '340px', height: '48px' }} preserveAspectRatio="none">
-        {bars}
-      </svg>
-      <span style={{ fontSize: '19px', fontWeight: 800, color: '#0f172a', letterSpacing: '2.5px', marginTop: '4px' }}>
-        {code}
-      </span>
-    </div>
-  );
-};
-
 interface FrontCardProps {
   member: MemberRecord;
   settings: AppSettings;
   photoBase64: string;
+  isExport?: boolean;
 }
 
-const FrontCardContent: React.FC<FrontCardProps> = ({ member, settings, photoBase64 }) => {
-  const regNo = member.registrationNumber || member.id || 'JG260001';
-
-  const formatName = (fullName: string) => {
-    const nameStr = (fullName || 'MD MARUF').trim();
-    const parts = nameStr.split(' ');
-    if (parts.length === 1) {
-      return <span style={{ color: '#b91c1c' }}>{parts[0]}</span>;
-    }
-    const first = parts[0];
-    const rest = parts.slice(1).join(' ');
-    return (
-      <>
-        <span style={{ color: '#0f172a' }}>{first} </span>
-        <span style={{ color: '#b91c1c' }}>{rest}</span>
-      </>
-    );
-  };
-
-  const issueDateStr = member.approvalDate
-    ? new Date(member.approvalDate).toLocaleDateString('en-GB')
-    : '24/07/2026';
+const FrontCardContent: React.FC<FrontCardProps> = ({ member, settings, photoBase64, isExport = false }) => {
+  const regNo = member.registrationNumber || member.id || 'JG260002';
+  const fullName = (member.fullName || 'MD.NIROB KAZI').toUpperCase();
+  const roleName = member.memberType || 'Member';
+  const phoneVal = formatPhoneNumber(member.phone) || '017xxxxxxxx';
+  const emailVal = member.email || 'contact.mdmaruf@gmail.com';
+  const addressVal =
+    member.presentAddress ||
+    member.permanentAddress ||
+    settings.orgAddress ||
+    PERMANENT_ORG_ADDRESS;
 
   return (
     <div
       style={{
         width: `${CARD_WIDTH}px`,
         height: `${CARD_HEIGHT}px`,
-        borderRadius: '36px',
+        borderRadius: isExport ? '0px' : '36px',
         overflow: 'hidden',
         boxSizing: 'border-box',
         position: 'relative',
@@ -363,364 +345,309 @@ const FrontCardContent: React.FC<FrontCardProps> = ({ member, settings, photoBas
         fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
       }}
     >
+      {/* Top Accent Strip */}
       <div
         style={{
-          position: 'absolute',
-          top: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: '56px',
-          height: '18px',
-          borderRadius: '10px',
-          backgroundColor: '#475569',
-          border: '3px solid #cbd5e1',
-          boxShadow: 'inset 0 3px 6px rgba(0,0,0,0.4)',
-          zIndex: 30
+          width: '100%',
+          height: '6px',
+          background: 'linear-gradient(to right, #22c55e, #f59e0b, #ef4444, #0284c7)'
         }}
       />
 
-      <div style={{ position: 'absolute', top: '50px', left: '52px', zIndex: 20 }}>
-        <OrgHeaderLogo orgName={settings.orgName} />
-      </div>
-
+      {/* Header Area */}
       <div
         style={{
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          left: 0,
-          width: '32px',
-          backgroundColor: '#b91c1c',
-          zIndex: 10
-        }}
-      />
-
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          width: '90px',
-          height: '420px',
-          backgroundColor: '#b91c1c',
-          borderBottomLeftRadius: '48px',
-          zIndex: 10,
+          paddingTop: '26px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          paddingTop: '60px',
-          boxSizing: 'border-box'
+          position: 'relative',
+          zIndex: 10
         }}
       >
-        <div style={{ width: '90px', height: '260px', position: 'relative' }}>
-          <svg
-            width="90"
-            height="260"
-            viewBox="0 0 90 260"
-            style={{ display: 'block', overflow: 'visible' }}
-          >
-            <text
-              x="-130"
-              y="36"
-              fill="#ffffff"
-              fontSize="21"
-              fontWeight="900"
-              fontFamily="sans-serif"
-              letterSpacing="1"
-              transform="rotate(-90)"
-              textAnchor="middle"
-            >
-              JANATHA GARAGE
-            </text>
-            <text
-              x="-130"
-              y="58"
-              fill="#ffffff"
-              fontSize="13"
-              fontWeight="800"
-              fontFamily="sans-serif"
-              letterSpacing="1.5"
-              transform="rotate(-90)"
-              textAnchor="middle"
-              opacity="0.95"
-            >
-              OFFICIAL MEMBER
-            </text>
-          </svg>
-        </div>
+        <JanathaHeaderLogo />
 
+        {/* Multi-color separator line under logo */}
         <div
           style={{
-            width: '56px',
-            height: '56px',
-            borderRadius: '50%',
-            backgroundColor: '#ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 4px 6px rgba(0,0,0,0.15)',
-            flexShrink: 0,
-            marginTop: '10px'
+            width: '320px',
+            height: '5px',
+            background: 'linear-gradient(to right, #22c55e, #f59e0b, #ef4444, #0284c7)',
+            borderRadius: '3px',
+            marginTop: '26px',
+            marginBottom: '20px'
+          }}
+        />
+
+        {/* MEMBER ID CARD Text */}
+        <div
+          style={{
+            color: '#0b2b52',
+            fontSize: '24px',
+            fontWeight: 900,
+            letterSpacing: '3px',
+            textTransform: 'uppercase',
+            marginTop: '2px',
+            marginBottom: '12px'
           }}
         >
-          <div
-            style={{
-              width: '46px',
-              height: '46px',
-              borderRadius: '50%',
-              border: '2.5px solid #b91c1c',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#b91c1c',
-              fontWeight: 900,
-              fontSize: '22px',
-              letterSpacing: '-1px'
-            }}
-          >
-            JG
-          </div>
+          MEMBER ID CARD
         </div>
       </div>
 
+      {/* Member Photo & Name Centered */}
       <div
         style={{
-          position: 'absolute',
-          top: '420px',
-          bottom: 0,
-          right: 0,
-          width: '32px',
-          backgroundColor: '#b91c1c',
-          zIndex: 10
-        }}
-      />
-
-      <div
-        style={{
-          paddingLeft: '52px',
-          paddingRight: '120px',
-          paddingTop: '130px',
-          paddingBottom: '24px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          boxSizing: 'border-box',
-          height: '100%',
-          justifyContent: 'space-between'
+          marginTop: '20px',
+          position: 'relative',
+          zIndex: 10
         }}
       >
+        {/* Photo Box */}
         <div
           style={{
-            width: '230px',
-            height: '270px',
-            flexShrink: 0,
-            minHeight: '270px',
-            maxHeight: '270px',
-            border: '2px solid #b91c1c',
-            backgroundColor: '#f8fafc',
+            width: '215px',
+            height: '265px',
+            borderRadius: '22px',
+            border: '3.5px solid #005fa3',
             overflow: 'hidden',
-            boxSizing: 'border-box',
-            boxShadow: '0 6px 12px rgba(0,0,0,0.06)'
+            backgroundColor: '#f8fafc',
+            boxShadow: '0 10px 25px rgba(0, 95, 163, 0.18)'
           }}
         >
           <img
-            src={photoBase64 || member.photoUrl || DEFAULT_AVATAR_BASE64}
-            alt={member.fullName}
+            src={photoBase64 || member.photoUrl || DEFAULT_AVATAR}
+            alt={fullName}
             style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top' }}
             onError={(e) => {
-              (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR_BASE64;
+              (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
             }}
           />
         </div>
 
-        <div style={{ textAlign: 'center', marginTop: '10px' }}>
+        {/* Member Name & Role */}
+        <div
+          style={{
+            marginTop: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            textAlign: 'center',
+            paddingLeft: '24px',
+            paddingRight: '24px'
+          }}
+        >
           <h2
             style={{
               fontSize: '34px',
               fontWeight: 900,
+              color: '#0b1e36',
               margin: 0,
-              lineHeight: 1.1,
-              letterSpacing: '0.5px',
-              textTransform: 'uppercase'
+              textTransform: 'uppercase',
+              lineHeight: 1.15,
+              letterSpacing: '0.5px'
             }}
           >
-            {formatName(member.fullName)}
+            {fullName}
           </h2>
+
+          <span
+            style={{
+              fontSize: '24px',
+              fontWeight: 800,
+              color: '#0070ba',
+              marginTop: '5px'
+            }}
+          >
+            {roleName}
+          </span>
 
           <div
             style={{
-              display: 'inline-block',
-              marginTop: '8px',
-              padding: '5px 24px',
-              backgroundColor: '#059669',
-              color: '#ffffff',
-              borderRadius: '20px',
-              fontSize: '15px',
-              fontWeight: 800,
-              textTransform: 'uppercase',
-              letterSpacing: '1px'
+              width: '180px',
+              height: '4px',
+              background: 'linear-gradient(to right, #0070ba, #22c55e, #f59e0b, #ef4444)',
+              borderRadius: '2px',
+              marginTop: '10px'
             }}
-          >
-            {member.memberType || 'EXECUTIVE MEMBER'}
-          </div>
-        </div>
-
-        <div
-          style={{
-            width: '100%',
-            marginTop: '16px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px',
-            fontSize: '17px',
-            fontWeight: 800,
-            color: '#0f172a'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                backgroundColor: '#b91c1c',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff',
-                flexShrink: 0
-              }}
-            >
-              <UserCheck style={{ width: '18px', height: '18px' }} />
-            </div>
-            <span style={{ width: '135px', textTransform: 'uppercase', color: '#0f172a' }}>
-              REG. NO
-            </span>
-            <span style={{ color: '#0f172a' }}>:</span>
-            <span style={{ color: '#1d4ed8', fontWeight: 900, fontSize: '18px' }}>
-              {regNo}
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                backgroundColor: '#b91c1c',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff',
-                flexShrink: 0
-              }}
-            >
-              <Phone style={{ width: '18px', height: '18px' }} />
-            </div>
-            <span style={{ width: '135px', textTransform: 'uppercase', color: '#0f172a' }}>
-              PHONE
-            </span>
-            <span style={{ color: '#0f172a' }}>:</span>
-            <span style={{ color: '#0f172a' }}>{formatPhoneNumber(member.phone)}</span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                backgroundColor: '#b91c1c',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff',
-                flexShrink: 0
-              }}
-            >
-              <Droplet style={{ width: '18px', height: '18px' }} />
-            </div>
-            <span style={{ width: '135px', textTransform: 'uppercase', color: '#0f172a' }}>
-              BLOOD GROUP
-            </span>
-            <span style={{ color: '#0f172a' }}>:</span>
-            <span style={{ color: '#dc2626', fontWeight: 900, fontSize: '19px' }}>
-              {member.bloodGroup || 'A+'}
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                backgroundColor: '#b91c1c',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff',
-                flexShrink: 0
-              }}
-            >
-              <Briefcase style={{ width: '18px', height: '18px' }} />
-            </div>
-            <span style={{ width: '135px', textTransform: 'uppercase', color: '#0f172a' }}>
-              OCCUPATION
-            </span>
-            <span style={{ color: '#0f172a' }}>:</span>
-            <span style={{ color: '#0f172a' }}>{member.occupation || 'Student'}</span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                backgroundColor: '#b91c1c',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff',
-                flexShrink: 0
-              }}
-            >
-              <Calendar style={{ width: '18px', height: '18px' }} />
-            </div>
-            <span style={{ width: '135px', textTransform: 'uppercase', color: '#0f172a' }}>
-              ISSUED
-            </span>
-            <span style={{ color: '#0f172a' }}>:</span>
-            <span style={{ color: '#0f172a' }}>{issueDateStr}</span>
-          </div>
-        </div>
-
-        <div style={{ marginTop: '12px' }}>
-          <BarcodeGraphic value={regNo} />
-        </div>
-
-        <div
-          style={{
-            width: '100%',
-            height: '42px',
-            backgroundColor: '#b91c1c',
-            borderRadius: '22px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '10px',
-            color: '#ffffff',
-            fontSize: '17px',
-            fontWeight: 800,
-            marginTop: '8px'
-          }}
-        >
-          <Globe style={{ width: '20px', height: '20px' }} />
-          <span>www.janathagarage.org</span>
+          />
         </div>
       </div>
+
+      {/* Member Data Fields - Centered & Larger Font Size, No Icons */}
+      <div
+        style={{
+          width: '560px',
+          margin: '26px auto 0 auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '14px',
+          position: 'relative',
+          zIndex: 10
+        }}
+      >
+        {/* Row 1: Member ID */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ width: '170px', textAlign: 'right', fontSize: '22px', fontWeight: 800, color: '#475569' }}>
+            Member ID
+          </span>
+          <span style={{ width: '28px', textAlign: 'center', fontSize: '22px', fontWeight: 900, color: '#0b1e36' }}>
+            :
+          </span>
+          <span style={{ width: '350px', textAlign: 'left', fontSize: '24px', fontWeight: 900, color: '#0b1e36' }}>
+            {regNo}
+          </span>
+        </div>
+
+        {/* Row 2: Mobile */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ width: '170px', textAlign: 'right', fontSize: '22px', fontWeight: 800, color: '#475569' }}>
+            Mobile
+          </span>
+          <span style={{ width: '28px', textAlign: 'center', fontSize: '22px', fontWeight: 900, color: '#0b1e36' }}>
+            :
+          </span>
+          <span style={{ width: '350px', textAlign: 'left', fontSize: '23px', fontWeight: 900, color: '#0b1e36' }}>
+            {phoneVal}
+          </span>
+        </div>
+
+        {/* Row 3: Email */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ width: '170px', textAlign: 'right', fontSize: '22px', fontWeight: 800, color: '#475569' }}>
+            Email
+          </span>
+          <span style={{ width: '28px', textAlign: 'center', fontSize: '22px', fontWeight: 900, color: '#0b1e36' }}>
+            :
+          </span>
+          <span style={{ width: '350px', textAlign: 'left', fontSize: '21px', fontWeight: 800, color: '#0b1e36', wordBreak: 'break-all' }}>
+            {emailVal}
+          </span>
+        </div>
+
+        {/* Row 4: Address */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+          <span style={{ width: '170px', textAlign: 'right', fontSize: '22px', fontWeight: 800, color: '#475569', paddingTop: '2px' }}>
+            Address
+          </span>
+          <span style={{ width: '28px', textAlign: 'center', fontSize: '22px', fontWeight: 900, color: '#0b1e36', paddingTop: '2px' }}>
+            :
+          </span>
+          <span
+            style={{
+              width: '350px',
+              textAlign: 'left',
+              fontSize: '20px',
+              fontWeight: 700,
+              color: '#1e293b',
+              lineHeight: 1.35,
+              whiteSpace: 'pre-line',
+              paddingTop: '2px'
+            }}
+          >
+            {addressVal}
+          </span>
+        </div>
+      </div>
+
+      {/* Bottom Area: Calligraphy and Signature */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: '26px',
+          left: '44px',
+          right: '44px',
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          zIndex: 10
+        }}
+      >
+        <div
+          style={{
+            fontFamily: '"Caveat", "Dancing Script", "Brush Script MT", cursive',
+            fontSize: '32px',
+            fontWeight: 700,
+            color: '#005fa3',
+            lineHeight: 1.25,
+            fontStyle: 'italic',
+            transform: 'rotate(-4deg)',
+            paddingBottom: '4px'
+          }}
+        >
+          Better People
+          <br />
+          Better Community
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            marginBottom: '4px'
+          }}
+        >
+          {/* Authority Signature Image */}
+          {settings.authoritySignatureUrl ? (
+            <div
+              style={{
+                height: '48px',
+                display: 'flex',
+                alignItems: 'flex-end',
+                justifyContent: 'center',
+                marginBottom: '4px'
+              }}
+            >
+              <img
+                src={settings.authoritySignatureUrl}
+                alt="Authorized Signature"
+                style={{
+                  maxHeight: '46px',
+                  maxWidth: '165px',
+                  objectFit: 'contain'
+                }}
+              />
+            </div>
+          ) : (
+            <div style={{ height: '48px' }} />
+          )}
+
+          <div
+            style={{
+              width: '165px',
+              height: '2px',
+              backgroundColor: '#334155',
+              marginBottom: '6px'
+            }}
+          />
+          <span
+            style={{
+              fontSize: '15px',
+              fontWeight: 800,
+              color: '#0f172a',
+              letterSpacing: '0.4px'
+            }}
+          >
+            {settings.authorityTitle || 'Authorized Signature'}
+          </span>
+        </div>
+      </div>
+
+      {/* Bottom Accent Strip */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: '6px',
+          background: 'linear-gradient(to right, #0284c7, #ef4444, #f59e0b, #22c55e)'
+        }}
+      />
     </div>
   );
 };
@@ -729,15 +656,18 @@ interface BackCardProps {
   member: MemberRecord;
   settings: AppSettings;
   qrCodeUrl: string;
+  isExport?: boolean;
 }
 
-const BackCardContent: React.FC<BackCardProps> = ({ settings, qrCodeUrl }) => {
+const BackCardContent: React.FC<BackCardProps> = ({ settings, qrCodeUrl, isExport = false }) => {
+  const orgAddress = settings.orgAddress || PERMANENT_ORG_ADDRESS;
+
   return (
     <div
       style={{
         width: `${CARD_WIDTH}px`,
         height: `${CARD_HEIGHT}px`,
-        borderRadius: '36px',
+        borderRadius: isExport ? '0px' : '36px',
         overflow: 'hidden',
         boxSizing: 'border-box',
         position: 'relative',
@@ -745,233 +675,194 @@ const BackCardContent: React.FC<BackCardProps> = ({ settings, qrCodeUrl }) => {
         fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
       }}
     >
+      {/* Top Accent Strip */}
       <div
         style={{
-          position: 'absolute',
-          top: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: '56px',
-          height: '18px',
-          borderRadius: '10px',
-          backgroundColor: '#475569',
-          border: '3px solid #cbd5e1',
-          boxShadow: 'inset 0 3px 6px rgba(0,0,0,0.4)',
-          zIndex: 30
+          width: '100%',
+          height: '6px',
+          background: 'linear-gradient(to right, #22c55e, #f59e0b, #ef4444, #0284c7)'
         }}
       />
 
-      <div style={{ position: 'absolute', top: '50px', left: '52px', zIndex: 20 }}>
-        <OrgHeaderLogo orgName={settings.orgName} />
-      </div>
-
+      {/* Header Area */}
       <div
         style={{
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          left: 0,
-          width: '32px',
-          backgroundColor: '#b91c1c',
-          zIndex: 10
-        }}
-      />
-
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          width: '75px',
-          height: '320px',
-          backgroundColor: '#b91c1c',
-          borderBottomLeftRadius: '40px',
-          zIndex: 10,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingTop: '60px',
-          boxSizing: 'border-box'
-        }}
-      >
-        <svg
-          width="75"
-          height="220"
-          viewBox="0 0 75 220"
-          style={{ display: 'block', overflow: 'visible' }}
-        >
-          <text
-            x="-110"
-            y="42"
-            fill="#ffffff"
-            fontSize="22"
-            fontWeight="900"
-            fontFamily="sans-serif"
-            letterSpacing="2"
-            transform="rotate(-90)"
-            textAnchor="middle"
-          >
-            INFORMATION
-          </text>
-        </svg>
-      </div>
-
-      <div
-        style={{
-          position: 'absolute',
-          top: '320px',
-          bottom: 0,
-          right: 0,
-          width: '32px',
-          backgroundColor: '#b91c1c',
-          zIndex: 10
-        }}
-      />
-
-      <div
-        style={{
-          paddingLeft: '52px',
-          paddingRight: '100px',
-          paddingTop: '130px',
-          paddingBottom: '32px',
+          paddingTop: '32px',
           display: 'flex',
           flexDirection: 'column',
-          boxSizing: 'border-box',
-          height: '100%',
-          justifyContent: 'space-between'
+          alignItems: 'center',
+          position: 'relative',
+          zIndex: 10
+        }}
+      >
+        <JanathaHeaderLogo />
+
+        <div
+          style={{
+            width: '320px',
+            height: '4px',
+            background: 'linear-gradient(to right, #22c55e, #f59e0b, #ef4444, #0284c7)',
+            borderRadius: '2px',
+            marginTop: '26px'
+          }}
+        />
+      </div>
+
+      {/* Center QR Code Section - moved lower as requested */}
+      <div
+        style={{
+          marginTop: '65px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          position: 'relative',
+          zIndex: 10
         }}
       >
         <div
           style={{
-            marginTop: '10px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '14px',
-            fontSize: '16px',
-            fontWeight: 700,
-            color: '#1e293b'
+            padding: '14px',
+            border: '3px solid #005fa3',
+            borderRadius: '22px',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 6px 18px rgba(0, 95, 163, 0.12)'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
-            <div
-              style={{
-                width: '34px',
-                height: '34px',
-                backgroundColor: '#b91c1c',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff',
-                flexShrink: 0,
-                marginTop: '2px'
-              }}
-            >
-              <MapPin style={{ width: '18px', height: '18px' }} />
-            </div>
-            <p style={{ margin: 0, lineHeight: 1.35, fontSize: '16px', fontWeight: 700 }}>
-              {settings.orgAddress || 'Plot #14, Road #05\nDhanmondi, Dhaka-1205\nBangladesh'}
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <div
-              style={{
-                width: '34px',
-                height: '34px',
-                backgroundColor: '#b91c1c',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff',
-                flexShrink: 0
-              }}
-            >
-              <Phone style={{ width: '18px', height: '18px' }} />
-            </div>
-            <p style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>{settings.orgPhone || '+8801700000000'}</p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <div
-              style={{
-                width: '34px',
-                height: '34px',
-                backgroundColor: '#b91c1c',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff',
-                flexShrink: 0
-              }}
-            >
-              <Mail style={{ width: '18px', height: '18px' }} />
-            </div>
-            <p style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>{settings.orgEmail || 'info@janathagarage.org'}</p>
-          </div>
+          {qrCodeUrl ? (
+            <img
+              src={qrCodeUrl}
+              alt="Verification QR Code"
+              style={{ width: '190px', height: '190px', display: 'block' }}
+            />
+          ) : (
+            <div style={{ width: '190px', height: '190px', backgroundColor: '#e2e8f0' }} />
+          )}
         </div>
+        <span
+          style={{
+            fontSize: '19px',
+            fontWeight: 800,
+            color: '#0b2b52',
+            marginTop: '12px',
+            letterSpacing: '0.5px'
+          }}
+        >
+          Scan for Verification
+        </span>
+      </div>
 
-        <div style={{ height: '2px', backgroundColor: '#b91c1c', width: '100%', margin: '16px 0' }} />
-
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <div
+      {/* Our Address Container Box - clean, larger font, no icons */}
+      <div
+        style={{
+          marginTop: '45px',
+          display: 'flex',
+          justifyContent: 'center',
+          position: 'relative',
+          zIndex: 10
+        }}
+      >
+        <div
+          style={{
+            width: '540px',
+            backgroundColor: '#f0f5fb',
+            border: '1.5px solid #d4e3f4',
+            borderRadius: '22px',
+            padding: '20px 28px',
+            boxSizing: 'border-box',
+            textAlign: 'center'
+          }}
+        >
+          <h4
             style={{
-              padding: '6px',
-              border: '2px solid #b91c1c',
-              borderRadius: '8px',
-              backgroundColor: '#ffffff'
+              margin: '0 0 8px 0',
+              fontSize: '22px',
+              fontWeight: 900,
+              color: '#005fa3',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
             }}
           >
-            {qrCodeUrl ? (
-              <img src={qrCodeUrl} alt="QR Code" style={{ width: '140px', height: '140px', display: 'block' }} />
-            ) : (
-              <div style={{ width: '140px', height: '140px', backgroundColor: '#e2e8f0' }} />
-            )}
-          </div>
-        </div>
-
-        <div style={{ marginTop: '14px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 900, color: '#b91c1c', margin: '0 0 8px 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            TERMS & CONDITIONS
-          </h3>
-          <ul
+            Our Address
+          </h4>
+          <p
             style={{
               margin: 0,
-              paddingLeft: '18px',
-              fontSize: '14px',
+              fontSize: '18px',
               fontWeight: 700,
               color: '#334155',
-              lineHeight: 1.6
+              lineHeight: 1.5,
+              whiteSpace: 'pre-line'
             }}
           >
-            <li>This card is non-transferable.</li>
-            <li>This card is the property of Janatha Garage.</li>
-            <li>Please return this card if found.</li>
-            <li>Misuse of this card is strictly prohibited.</li>
-          </ul>
-        </div>
+            {orgAddress}
+          </p>
 
-        <div style={{ height: '2px', backgroundColor: '#b91c1c', width: '100%', margin: '16px 0 10px 0' }} />
+          <div
+            style={{
+              height: '1.5px',
+              backgroundColor: '#cfe0f2',
+              margin: '14px 0 12px 0'
+            }}
+          />
 
-        <div style={{ textAlign: 'center' }}>
-          <span style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            AUTHORIZED SIGNATURE
+          <span
+            style={{
+              fontSize: '17px',
+              fontWeight: 800,
+              color: '#005fa3',
+              letterSpacing: '0.5px'
+            }}
+          >
+            Community &nbsp;•&nbsp; Support &nbsp;•&nbsp; Development
           </span>
-          <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'center' }}>
-            <svg viewBox="0 0 180 38" style={{ width: '160px', height: '34px' }}>
-              <path
-                d="M 10 28 C 30 10, 40 32, 60 12 C 80 -2, 90 35, 120 18 C 140 8, 150 28, 170 14"
-                fill="none"
-                stroke="#0f172a"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              />
-            </svg>
+        </div>
+      </div>
+
+      {/* Slogan & Management */}
+      <div
+        style={{
+          marginTop: '42px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          position: 'relative',
+          zIndex: 10
+        }}
+      >
+        <p
+          style={{
+            fontSize: '21px',
+            fontStyle: 'italic',
+            fontWeight: 800,
+            color: '#005fa3',
+            margin: '0 0 8px 0',
+            textAlign: 'center'
+          }}
+        >
+          &ldquo;Together we build a better tomorrow.&rdquo;
+        </p>
+
+        <div style={{ textAlign: 'center', width: '540px', marginTop: '4px' }}>
+          <div style={{ fontSize: '22px', fontWeight: 900, color: '#0b1e36' }}>
+            Janatha Garage
+          </div>
+          <div style={{ fontSize: '15px', fontWeight: 800, color: '#64748b' }}>
+            Management Team
           </div>
         </div>
       </div>
+
+      {/* Bottom Accent Strip */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: '6px',
+          background: 'linear-gradient(to right, #0284c7, #ef4444, #f59e0b, #22c55e)'
+        }}
+      />
     </div>
   );
 };
@@ -979,7 +870,7 @@ const BackCardContent: React.FC<BackCardProps> = ({ settings, qrCodeUrl }) => {
 export const IdCardPreview: React.FC<IdCardPreviewProps> = ({ member, settings }) => {
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const [photoBase64, setPhotoBase64] = useState<string>('');
-  const [isGeneratingPng, setIsGeneratingPng] = useState<boolean>(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
 
   const exportFrontRef = useRef<HTMLDivElement>(null);
   const exportBackRef = useRef<HTMLDivElement>(null);
@@ -995,7 +886,7 @@ export const IdCardPreview: React.FC<IdCardPreviewProps> = ({ member, settings }
         const qr = await QRCode.toDataURL(verifyUrl, {
           width: 320,
           margin: 1,
-          color: { dark: '#0f172a', light: '#ffffff' }
+          color: { dark: '#0b2b52', light: '#ffffff' }
         });
         if (isMounted) setQrCodeUrl(qr);
       } catch (err) {
@@ -1020,85 +911,58 @@ export const IdCardPreview: React.FC<IdCardPreviewProps> = ({ member, settings }
   const html2canvasOptions = {
     scale: 3,
     useCORS: true,
-    allowTaint: true,
+    allowTaint: false,
     backgroundColor: '#ffffff',
     logging: false,
-    foreignObjectRendering: false,
     imageTimeout: 0,
     onclone: (clonedDoc: Document) => {
       sanitizeDocumentForHtml2Canvas(clonedDoc);
-    }
-  };
-
-  const handleDownloadPng = async () => {
-    if (!exportFrontRef.current || !exportBackRef.current) return;
-    setIsGeneratingPng(true);
-    try {
-      await waitForAssets(exportFrontRef.current);
-      await waitForAssets(exportBackRef.current);
-
-      const canvasFront = await html2canvas(exportFrontRef.current, html2canvasOptions);
-      const canvasBack  = await html2canvas(exportBackRef.current,  html2canvasOptions);
-
-      const regNo = member.registrationNumber || member.id || 'ID_Card';
-
-      const frontLink = document.createElement('a');
-      frontLink.download = `${regNo}_ID_Card_Front.png`;
-      frontLink.href = canvasFront.toDataURL('image/png', 1.0);
-      document.body.appendChild(frontLink);
-      frontLink.click();
-      document.body.removeChild(frontLink);
-
-      await new Promise((r) => setTimeout(r, 500));
-
-      const backLink = document.createElement('a');
-      backLink.download = `${regNo}_ID_Card_Back.png`;
-      backLink.href = canvasBack.toDataURL('image/png', 1.0);
-      document.body.appendChild(backLink);
-      backLink.click();
-      document.body.removeChild(backLink);
-    } catch (err) {
-      console.error('PNG Generation failed:', err);
-      alert('Failed to generate PNG images. Please try again.');
-    } finally {
-      setIsGeneratingPng(false);
+      const container = clonedDoc.querySelector('[data-export-container]') as HTMLElement;
+      if (container) {
+        container.style.opacity = '1';
+        container.style.visibility = 'visible';
+        container.style.position = 'static';
+        container.style.overflow = 'visible';
+        container.style.height = 'auto';
+      }
     }
   };
 
   const handleDownloadPdf = async () => {
     if (!exportFrontRef.current || !exportBackRef.current) return;
-    setIsGeneratingPng(true);
+    setIsGeneratingPdf(true);
     try {
       await waitForAssets(exportFrontRef.current);
       await waitForAssets(exportBackRef.current);
 
       const canvasFront = await html2canvas(exportFrontRef.current, html2canvasOptions);
-      const canvasBack  = await html2canvas(exportBackRef.current,  html2canvasOptions);
+      const canvasBack = await html2canvas(exportBackRef.current, html2canvasOptions);
 
-      // CR80 portrait in mm: 54 × 85.6 mm
-      const cardWmm = 54;
-      const cardHmm = 85.6;
+      // Exact card dimensions: 45mm x 72mm (Ratio 1 : 1.6)
+      const cardWmm = 45;
+      const cardHmm = 72;
 
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
-        format: [cardWmm, cardHmm]
+        format: [cardWmm, cardHmm],
+        compress: true
       });
 
       const frontDataUrl = canvasFront.toDataURL('image/png', 1.0);
-      pdf.addImage(frontDataUrl, 'PNG', 0, 0, cardWmm, cardHmm);
+      pdf.addImage(frontDataUrl, 'PNG', 0, 0, cardWmm, cardHmm, undefined, 'FAST');
 
       pdf.addPage([cardWmm, cardHmm], 'portrait');
       const backDataUrl = canvasBack.toDataURL('image/png', 1.0);
-      pdf.addImage(backDataUrl, 'PNG', 0, 0, cardWmm, cardHmm);
+      pdf.addImage(backDataUrl, 'PNG', 0, 0, cardWmm, cardHmm, undefined, 'FAST');
 
       const regNo = member.registrationNumber || member.id || 'ID_Card';
       pdf.save(`${regNo}_ID_Card.pdf`);
     } catch (err) {
       console.error('PDF Generation failed:', err);
-      alert('Failed to generate PDF. Please try again.');
+      alert('Failed to generate PDF. Please check browser console for details.');
     } finally {
-      setIsGeneratingPng(false);
+      setIsGeneratingPdf(false);
     }
   };
 
@@ -1107,7 +971,7 @@ export const IdCardPreview: React.FC<IdCardPreviewProps> = ({ member, settings }
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 w-full justify-items-center">
         <div className="flex flex-col items-center">
           <span className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3 flex items-center gap-1.5">
-            <CreditCard className="w-4 h-4 text-rose-600" /> Front Side (Portrait)
+            <CreditCard className="w-4 h-4 text-blue-600" /> Front Side (Portrait)
           </span>
           <div
             className="relative overflow-hidden rounded-[20px] shadow-2xl border border-slate-300 bg-white"
@@ -1125,6 +989,7 @@ export const IdCardPreview: React.FC<IdCardPreviewProps> = ({ member, settings }
                 member={member}
                 settings={settings}
                 photoBase64={photoBase64}
+                isExport={false}
               />
             </div>
           </div>
@@ -1132,7 +997,7 @@ export const IdCardPreview: React.FC<IdCardPreviewProps> = ({ member, settings }
 
         <div className="flex flex-col items-center">
           <span className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3 flex items-center gap-1.5">
-            <CreditCard className="w-4 h-4 text-rose-600" /> Back Side (Portrait)
+            <CreditCard className="w-4 h-4 text-blue-600" /> Back Side (Portrait)
           </span>
           <div
             className="relative overflow-hidden rounded-[20px] shadow-2xl border border-slate-300 bg-white"
@@ -1150,81 +1015,85 @@ export const IdCardPreview: React.FC<IdCardPreviewProps> = ({ member, settings }
                 member={member}
                 settings={settings}
                 qrCodeUrl={qrCodeUrl}
+                isExport={false}
               />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Off-screen export targets — left:-99999px so they are in DOM but not visible.
-           html2canvas requires elements to be rendered (not opacity:0 / display:none). */}
+      {/* Export Targets Mounted inside DOM without negative coordinates */}
       <div
+        data-export-container="true"
         aria-hidden="true"
         style={{
-          position: 'absolute',
+          position: 'fixed',
           top: 0,
-          left: '-99999px',
+          left: 0,
           width: `${CARD_WIDTH}px`,
-          pointerEvents: 'none'
+          height: 'auto',
+          minHeight: '2500px',
+          zIndex: -9999,
+          pointerEvents: 'none',
+          opacity: 0,
+          overflow: 'visible'
         }}
       >
-        <div ref={exportFrontRef} style={{ width: `${CARD_WIDTH}px`, height: `${CARD_HEIGHT}px`, position: 'relative', backgroundColor: '#ffffff' }}>
+        <div
+          ref={exportFrontRef}
+          style={{
+            width: `${CARD_WIDTH}px`,
+            height: `${CARD_HEIGHT}px`,
+            position: 'relative',
+            backgroundColor: '#ffffff'
+          }}
+        >
           <FrontCardContent
             member={member}
             settings={settings}
             photoBase64={photoBase64}
+            isExport={true}
           />
         </div>
-        <div ref={exportBackRef} style={{ width: `${CARD_WIDTH}px`, height: `${CARD_HEIGHT}px`, position: 'relative', backgroundColor: '#ffffff' }}>
+        <div
+          ref={exportBackRef}
+          style={{
+            width: `${CARD_WIDTH}px`,
+            height: `${CARD_HEIGHT}px`,
+            position: 'relative',
+            backgroundColor: '#ffffff'
+          }}
+        >
           <BackCardContent
             member={member}
             settings={settings}
             qrCodeUrl={qrCodeUrl}
+            isExport={true}
           />
         </div>
       </div>
 
       <div className="pt-2 flex flex-col items-center gap-3">
-        <div className="flex items-center gap-3 flex-wrap justify-center">
-          <button
-            onClick={handleDownloadPng}
-            disabled={isGeneratingPng}
-            className="px-7 py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-sm rounded-2xl shadow-xl hover:shadow-2xl transition-all flex items-center gap-2.5 active:scale-95 disabled:opacity-50"
-          >
-            {isGeneratingPng ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Download className="w-5 h-5" />
-                Download PNG
-              </>
-            )}
-          </button>
-
-          <button
-            onClick={handleDownloadPdf}
-            disabled={isGeneratingPng}
-            className="px-7 py-3.5 bg-slate-800 hover:bg-slate-900 text-white font-black text-sm rounded-2xl shadow-xl hover:shadow-2xl transition-all flex items-center gap-2.5 active:scale-95 disabled:opacity-50"
-          >
-            {isGeneratingPng ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Download className="w-5 h-5" />
-                Download PDF
-              </>
-            )}
-          </button>
-        </div>
+        <button
+          onClick={handleDownloadPdf}
+          disabled={isGeneratingPdf}
+          className="px-9 py-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-base rounded-2xl shadow-xl hover:shadow-2xl transition-all flex items-center gap-3 active:scale-95 disabled:opacity-50 cursor-pointer"
+        >
+          {isGeneratingPdf ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Generating Printable PDF...
+            </>
+          ) : (
+            <>
+              <Download className="w-5 h-5" />
+              Download ID Card (PDF)
+            </>
+          )}
+        </button>
 
         <p className="text-xs text-slate-500 font-medium text-center max-w-sm">
-          High-resolution PNG or print-ready PDF (CR80 card size, front &amp; back).
+          Print-ready PDF with exact dimensions (45mm × 72mm, Front &amp; Back).
         </p>
       </div>
     </div>

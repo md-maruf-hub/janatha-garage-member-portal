@@ -357,21 +357,21 @@ function approveMember(payload) {
   // Generate Sequential Registration Number (e.g. JG260001, JG260002)
   const approvedData = approvedSheet.getDataRange().getValues();
   let maxSeq = 0;
-  const currentYear = new Date().getFullYear().toString().substring(2); // "26"
+  const currentYear = new Date().getFullYear().toString(); // "2025" or "2026"
 
   for (let i = 1; i < approvedData.length; i++) {
     const regNo = (approvedData[i][1] || "").toString();
-    if (regNo.startsWith("JG" + currentYear)) {
-      const seqStr = regNo.replace("JG" + currentYear, "");
-      const seq = parseInt(seqStr, 10);
+    const match = regNo.match(/JG[-]?\d{2,4}[-]0*(\d+)/i) || regNo.match(/JG\d{2}0*(\d+)/i);
+    if (match && match[1]) {
+      const seq = parseInt(match[1], 10);
       if (!isNaN(seq) && seq > maxSeq) {
         maxSeq = seq;
       }
     }
   }
 
-  const nextSeq = (maxSeq + 1).toString().padStart(4, "0");
-  const regNumber = `JG${currentYear}${nextSeq}`;
+  const nextSeq = (maxSeq + 1).toString().padStart(3, "0");
+  const regNumber = `JG-${currentYear}-${nextSeq}`;
   const approvalDate = new Date().toISOString();
 
   // Move to Approved Sheet
@@ -440,7 +440,7 @@ function approveMember(payload) {
           </div>
 
           <div style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 16px; text-align: center; font-size: 12px; color: #64748b;">
-            Janatha Garage Administration Office • Plot #14, Road #05, Dhanmondi, Dhaka-1205
+            Janatha Garage Administration Office • Jamuna Para Jame Masjid, Paterbhita, Chandanbaisha, Shariakandi, Bogura, Bangladesh
           </div>
         </div>
       `;
@@ -538,7 +538,7 @@ function rejectMember(payload) {
             </div>
 
             <div style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 16px; text-align: center; font-size: 12px; color: #64748b;">
-              Janatha Garage Administration Office • Plot #14, Road #05, Dhanmondi, Dhaka-1205
+              Janatha Garage Administration Office • Jamuna Para Jame Masjid, Paterbhita, Chandanbaisha, Shariakandi, Bogura, Bangladesh
             </div>
           </div>
         `;
